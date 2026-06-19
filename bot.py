@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationTypes
 
 # ─── CONFIG ──────────────────────────────────────
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -17,6 +17,26 @@ if not API_BASE_URL:
     print("❌ API_BASE_URL not set!")
     sys.exit(1)
 
+# 10 ONE-TIME ACCESS CODES (6 digits)
+ACCESS_CODES = {
+    "284739": False,  # False = unused
+    "561902": False,
+    "837461": False,
+    "192847": False,
+    "645831": False,
+    "308275": False,
+    "974162": False,
+    "453098": False,
+    "716254": False,
+    "829013": False,
+}
+
+# Track verified users
+VERIFIED_USERS = set()
+
+# Conversation states
+WAITING_CODE = 1
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -26,6 +46,56 @@ logger = logging.getLogger(__name__)
 # ─── HANDLERS ──────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Already verified
+    if user_id in VERIFIED_USERS:
+        await show_welcome(update)
+        return ConversationHandler.END
+    
+    # Ask for access code
+    await update.message.reply_text(
+        "🔒 *Access Required*\n\n"
+        "This bot is private. Please enter your 6-digit access code.",
+        parse_mode="Markdown"
+    )
+    return WAITING_CODE
+
+async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    code = update.message.text.strip()
+    
+    # Check if code exists and unused
+    if code in ACCESS_CODES and not ACCESS_CODES[code]:
+        # Mark as used
+        ACCESS_CODES[code] = True
+        VERIFIED_USERS.add(user_id)
+        
+        await update.message.reply_text(
+            "✅ *Access Granted!*\n\n"
+            "Your code has been redeemed successfully.",
+            parse_mode="Markdown"
+        )
+        await show_welcome(update)
+        return ConversationHandler.END
+    
+    elif code in ACCESS_CODES and ACCESS_CODES[code]:
+        await update.message.reply_text(
+            "❌ This code has already been used.\n"
+            "Each code is valid for one user only.",
+            parse_mode="Markdown"
+        )
+        return WAITING_CODE
+    
+    else:
+        await update.message.reply_text(
+            "❌ Invalid access code.\n"
+            "Please enter a valid 6-digit code.",
+            parse_mode="Markdown"
+        )
+        return WAITING_CODE
+
+async def show_welcome(update: Update):
     welcome = (
         "👋 *Welcome to the Search Bot!*\n\n"
         "Send me a mobile number and I'll search for you.\n"
@@ -51,6 +121,17 @@ async def search_api(mobile: str):
         return {"error": f"⚠️ Unexpected error: {str(e)}"}
 
 async def handle_mobile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Check if verified
+    if user_id not in VERIFIED_USERS:
+        await update.message.reply_text(
+            "🔒 *Access Denied*\n\n"
+            "Please use /start to enter your access code first.",
+            parse_mode="Markdown"
+        )
+        return
+
     mobile = update.message.text.strip()
     
     if not mobile.isdigit() or len(mobile) != 10:
@@ -100,18 +181,30 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update and update.message:
         await update.message.reply_text("😕 Something went wrong. Please try again.")
 
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Cancelled. Use /start to try again.")
+    return ConversationHandler.END
+
 # ─── MAIN ──────────────────────────────────────────
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
-    app.add_handler(CommandHandler("start", start))
+    # Conversation handler for access code
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            WAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, check_code)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    
+    app.add_handler(conv_handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mobile))
     app.add_error_handler(error_handler)
     
     print("🤖 Bot is running...")
     
-    # Keep-alive loop for Railway
     while True:
         try:
             app.run_polling(allowed_updates=Update.ALL_TYPES)
