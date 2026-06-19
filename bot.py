@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 # ─── CONFIG ──────────────────────────────────────
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -19,7 +19,7 @@ if not API_BASE_URL:
 
 # 10 ONE-TIME ACCESS CODES (6 digits)
 ACCESS_CODES = {
-    "284739": False,  # False = unused
+    "284739": False,
     "561902": False,
     "837461": False,
     "192847": False,
@@ -31,10 +31,7 @@ ACCESS_CODES = {
     "829013": False,
 }
 
-# Track verified users
 VERIFIED_USERS = set()
-
-# Conversation states
 WAITING_CODE = 1
 
 logging.basicConfig(
@@ -48,12 +45,10 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # Already verified
     if user_id in VERIFIED_USERS:
         await show_welcome(update)
         return ConversationHandler.END
     
-    # Ask for access code
     await update.message.reply_text(
         "🔒 *Access Required*\n\n"
         "This bot is private. Please enter your 6-digit access code.",
@@ -65,9 +60,7 @@ async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     code = update.message.text.strip()
     
-    # Check if code exists and unused
     if code in ACCESS_CODES and not ACCESS_CODES[code]:
-        # Mark as used
         ACCESS_CODES[code] = True
         VERIFIED_USERS.add(user_id)
         
@@ -123,7 +116,6 @@ async def search_api(mobile: str):
 async def handle_mobile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # Check if verified
     if user_id not in VERIFIED_USERS:
         await update.message.reply_text(
             "🔒 *Access Denied*\n\n"
@@ -190,7 +182,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Conversation handler for access code
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
