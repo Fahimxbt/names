@@ -2,6 +2,7 @@ import logging
 import requests
 import os
 import sys
+import time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -10,11 +11,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL")
 
 if not BOT_TOKEN:
-    print("❌ BOT_TOKEN environment variable not set!")
+    print("❌ BOT_TOKEN not set!")
     sys.exit(1)
-
 if not API_BASE_URL:
-    print("❌ API_BASE_URL environment variable not set!")
+    print("❌ API_BASE_URL not set!")
     sys.exit(1)
 
 logging.basicConfig(
@@ -100,15 +100,25 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update and update.message:
         await update.message.reply_text("😕 Something went wrong. Please try again.")
 
+# ─── MAIN ──────────────────────────────────────────
+
 def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).build()
     
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mobile))
-    application.add_error_handler(error_handler)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mobile))
+    app.add_error_handler(error_handler)
     
     print("🤖 Bot is running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # Keep-alive loop for Railway
+    while True:
+        try:
+            app.run_polling(allowed_updates=Update.ALL_TYPES)
+        except Exception as e:
+            print(f"⚠️ Bot crashed: {e}")
+            print("🔄 Restarting in 5 seconds...")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
